@@ -1,6 +1,6 @@
-name: "Riden RD60xx MQTT Bridge Home Assistant Add-on"
-version: "1.0.0"
-slug: "riden_rd60xx_home_assistant_addon"
+name: "Riden RD60xx MQTT Bridge HA Add-on"
+version: "1.0.2"
+slug: "riden_rd60xx_ha_addon"
 description: "Accepts Riden W0x TCP (8080) connections and publishes controls/status to MQTT"
 url: "https://github.com/DetFisch/Riden-RD60xx-MQTT-Bridge-Home-Assistant-Addon"
 arch:
@@ -27,6 +27,7 @@ options:
   mqtt_discovery_enabled: true
   mqtt_discovery_prefix: "homeassistant"
   default_update_period: 5
+  psu_addresses: "1"
 schema:
   mqtt_host: str
   mqtt_port: int
@@ -36,3 +37,4 @@ schema:
   mqtt_discovery_enabled: bool?
   mqtt_discovery_prefix: str?
   default_update_period: float?
+  psu_addresses: str?

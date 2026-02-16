@@ -290,7 +290,7 @@ class RD60xx(AsyncModbusReverseTcpClient):
         M9_OVP = 118
         M9_OCP = 119
 
-    # PSU address
+    # Default PSU address
     PSU_ADDR = 1
 
     # Field scalings
@@ -315,11 +315,14 @@ class RD60xx(AsyncModbusReverseTcpClient):
     # To save querying PSU too much, only refresh presets periodically
     PRESET_READ_INTERVAL = 5 # sec
 
-    def __init__(self, client_connected_cb, client_disconnected_cb, **kwargs: Any) -> None:
+    def __init__(self, client_connected_cb, client_disconnected_cb, psu_address:int=1, **kwargs: Any) -> None:
         """Constructor"""
 
         # Init parent
         AsyncModbusReverseTcpClient.__init__(self, client_connected_cb, client_disconnected_cb, framer=FramerType.RTU, **kwargs)
+
+        # Store PSU address (Modbus slave ID)
+        self.PSU_ADDR = psu_address
 
         # When pymodbus logs an error or critical it outputs the transmitted / received frame. When a PSU disconnects this makes the log
         # too noisy, so we disable logging from within the library unless the log level is DEBUG
