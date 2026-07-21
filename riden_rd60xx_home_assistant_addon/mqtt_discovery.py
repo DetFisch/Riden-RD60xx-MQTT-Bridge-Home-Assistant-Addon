@@ -111,8 +111,8 @@ async def publish_discovery_config(
         {"name": "Current Range", "id": "current_range", "unit": "A", "state_class": "measurement", "icon": "mdi:gauge", "value_template": "{% if value_json.current_range is defined %}{{ 6 if value_json.current_range == 0 else 12 }}{% else %}0{% endif %}"},
 
         # Temperature
-        {"name": "Temperature", "id": "temp_c", "unit": "??C", "device_class": "temperature", "state_class": "measurement", "value_template": "{{ value_json.temp_c }}"},
-        {"name": "External Temperature", "id": "ext_temp_c", "unit": "??C", "device_class": "temperature", "state_class": "measurement", "value_template": "{{ value_json.ext_temp_c }}"},
+        {"name": "Temperature", "id": "temp_c", "unit": "°C", "device_class": "temperature", "state_class": "measurement", "value_template": "{{ value_json.temp_c }}"},
+        {"name": "External Temperature", "id": "ext_temp_c", "unit": "°C", "device_class": "temperature", "state_class": "measurement", "value_template": "{{ value_json.ext_temp_c }}"},
 
         # Battery
         {"name": "Battery Mode", "id": "battery_mode", "icon": "mdi:battery-charging", "value_template": "{{ value_json.battery_mode }}"},
