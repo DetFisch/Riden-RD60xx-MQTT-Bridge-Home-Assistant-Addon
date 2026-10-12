@@ -121,6 +121,16 @@ class Bridge:
                     # Log modbus exception
                     self._logger.warning("Modbus exception in psu_task for %s : %s", self._identity, str(e))
 
+                    # A reverse TCP client cannot restore a dead socket itself.
+                    # Close it so the service removes the bridge and publishes offline.
+                    if not self._psu.connected:
+                        self._psu.close()
+                        break
+
+                    # Fail-fast errors can bypass the queue timeout that normally
+                    # paces this loop, including errors while setting the clock.
+                    await asyncio.sleep(max(self._persistent_state.update_period or 0, 5))
+
             except asyncio.CancelledError:
                 # Task cancelled
                 self._logger.debug("PSU task for %s cancelled", self._identity)
@@ -134,7 +144,7 @@ class Bridge:
 
                 # Close connection
                 try:
-                    self.close()
+                    self._psu.close()
                 except:
                     pass
 

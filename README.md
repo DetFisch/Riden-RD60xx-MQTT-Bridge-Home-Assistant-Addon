@@ -99,6 +99,26 @@ python riden_wifi_provision.py --server-ip 192.168.1.50 --ssid "MyWiFi" --passwo
 - Make sure MQTT is reachable and credentials are correct
 - Ensure the PSU WiFi module is in the correct setup mode before provisioning
 
+If the PSU connection is lost, its Connected sensor turns off and its controls
+become unavailable until the PSU reconnects. Temporary Modbus errors on a live
+connection are retried after at least five seconds. Commands that fail are not
+replayed after reconnecting; check the device's reported state before retrying.
+
+## Container images and tests
+
+GitHub Actions tests the bridge with Python 3.12 and builds native amd64 and
+aarch64 images. Successful builds on `main` publish signed versioned images and
+`latest` to `ghcr.io/detfisch/riden_rd60xx_home_assistant_addon`.
+Home Assistant installations continue to build locally from the add-on's
+Dockerfile, including the other architectures listed in `config.yaml`.
+
+Run the regression tests without connecting to a PSU, MQTT broker, or Home Assistant:
+
+```bash
+python -m pip install -r riden_rd60xx_home_assistant_addon/requirements.txt
+python -B -m unittest discover -s tests -v
+```
+
 ---
 
 ## Credits
@@ -106,4 +126,6 @@ python riden_wifi_provision.py --server-ip 192.168.1.50 --ssid "MyWiFi" --passwo
 - Based on the open-source Riden RD60xx MQTT bridge by pgreenland: https://github.com/pgreenland/RidenRD60xxMQTT
 - ESPTouch / SmartConfig provisioning inspired by the ESPTouch Android reference implementation
 - MQTT Discovery entities included for Home Assistant
+- Container build workflow contributed by [Andras Elso (elbandi)](https://github.com/elbandi)
+- PSU disconnect and log-flooding report by [Dewieinns](https://github.com/Dewieinns)
 

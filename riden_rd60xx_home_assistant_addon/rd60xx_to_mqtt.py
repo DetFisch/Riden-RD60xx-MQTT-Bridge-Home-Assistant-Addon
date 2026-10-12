@@ -374,8 +374,8 @@ class RD60xxToMQTT:
         # Entry
         self._logger.info("PSU task running")
 
-        # Map of IP -> PSU identity / connection time
-        identity_cache:Dict[str, Tuple[str, int]] = {}
+        # Map of IP -> PSU identity, model, serial number and connection time
+        identity_cache:Dict[str, Tuple[str, int, int, float]] = {}
 
         try:
             # Retrieve PSUs from queue
@@ -384,7 +384,7 @@ class RD60xxToMQTT:
                 psu, host, port = await self._new_psu_queue.get()
 
                 # Lookup identity from IP
-                identity, last_connection = identity_cache.get(host, (None, None))
+                identity, model, serial_no, last_connection = identity_cache.get(host, (None, None, None, None))
 
                 # Retrieve time
                 time_now = time.monotonic()
@@ -450,7 +450,7 @@ class RD60xxToMQTT:
                 last_connection = time_now
 
                 # Update identity map
-                identity_cache[host] = (identity, last_connection)
+                identity_cache[host] = (identity, model, serial_no, last_connection)
 
                 # Log identity
                 self._logger.info("PSU %s:%d's identity is %s, it's name is '%s'", host, port, identity, name)
@@ -461,6 +461,11 @@ class RD60xxToMQTT:
                 # Set default update period if not already configured
                 if state.update_period is None:
                     state.update_period = self._default_update_period
+
+                # Retire the previous socket/worker before replacing this identity.
+                previous_bridge = self._psus.get(identity)
+                if previous_bridge is not None:
+                    previous_bridge.client.close()
 
                 # Create new bridge instance
                 psu_bridge = Bridge(host, port, identity, model, serial_no, psu, state, self._mqtt_outbound, self._set_clock_on_connection)

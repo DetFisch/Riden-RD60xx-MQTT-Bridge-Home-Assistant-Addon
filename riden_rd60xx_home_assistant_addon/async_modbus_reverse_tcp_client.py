@@ -72,6 +72,7 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
         # Store callbacks
         self._client_connected_cb = client_connected_cb
         self._client_disconnected_cb = client_disconnected_cb
+        self._disconnect_notified = False
 
         # Force comms type and clear reset delay, preventing "client" from attempting to reconnect on connection loss
         comm_params = CommParams(
@@ -143,7 +144,22 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
         """Handle closed connection"""
 
         # Pass to transaction manager
-        self.ctx.connection_lost(exc)
+        try:
+            self.ctx.connection_lost(exc)
+        finally:
+            self._notify_disconnected()
 
-        # Notify via callback
-        self._client_disconnected_cb(self)
+    def close(self):
+        """Close the socket and notify the service, even after an internal close."""
+
+        try:
+            super().close()
+        finally:
+            self._notify_disconnected()
+
+    def _notify_disconnected(self):
+        """Report disconnection once across explicit close and transport callbacks."""
+
+        if not self._disconnect_notified:
+            self._disconnect_notified = True
+            self._client_disconnected_cb(self)
