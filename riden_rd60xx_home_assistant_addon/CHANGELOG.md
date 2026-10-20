@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.6 - 2026-10-20
+
+- Publish only supported 64-bit Home Assistant images (amd64 and aarch64).
+- Remove obsolete 32-bit architecture declarations and build workarounds.
+
 ## 1.0.5 - 2026-10-20
 
 - Build and publish versioned container images in GitHub Actions for faster Home Assistant installations and updates.

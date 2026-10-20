@@ -21,7 +21,7 @@ class ReleaseImagesTests(unittest.TestCase):
             json.dumps([{"path": ".", "image": "ghcr.io/detfisch/example"}]))
         (self.root / "Dockerfile").write_text("FROM alpine\n")
         self.config = dict(name="Example", slug="example", description="Example app",
-                           version="1.2.3", arch=["amd64", "aarch64", "armv7"])
+                           version="1.2.3", arch=["amd64", "aarch64"])
         self.write_config()
 
     def write_config(self):
@@ -31,13 +31,13 @@ class ReleaseImagesTests(unittest.TestCase):
         entries = images.matrix(images.load_addons(self.root))["include"]
         self.assertEqual([e["arch"] for e in entries], self.config["arch"])
         self.assertEqual(entries[1]["runner"], "ubuntu-24.04-arm")
-        self.assertEqual(entries[2]["platform"], "linux/arm/v7")
+        self.assertEqual(entries[1]["platform"], "linux/arm64")
 
     def test_build_from_is_selected_per_architecture(self):
         (self.root / "build.json").write_text(json.dumps(
-            {"build_from": {"armv7": "ghcr.io/home-assistant/armv7-base:latest"}}))
+            {"build_from": {"aarch64": "ghcr.io/home-assistant/aarch64-base:latest"}}))
         entries = images.matrix(images.load_addons(self.root))["include"]
-        self.assertIn("BUILD_FROM=ghcr.io/home-assistant/armv7-base:latest", entries[2]["build_args"])
+        self.assertIn("BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest", entries[1]["build_args"])
         self.assertNotIn("BUILD_FROM=", entries[0]["build_args"])
 
     def test_config_image_must_match_published_image(self):
@@ -47,7 +47,7 @@ class ReleaseImagesTests(unittest.TestCase):
             images.load_addons(self.root)
 
     def test_invalid_architecture_is_rejected(self):
-        self.config["arch"] = ["unsupported"]
+        self.config["arch"] = ["armv7"]
         self.write_config()
         with self.assertRaisesRegex(ValueError, "architectures"):
             images.load_addons(self.root)
@@ -75,7 +75,7 @@ class ReleaseImagesTests(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertIn("ghcr.io/detfisch/example:latest", created[0])
         self.assertNotIn("ghcr.io/detfisch/example:1.2.3", created[0])
-        self.assertEqual(len([v for v in created[0] if ":sha-" in v]), 3)
+        self.assertEqual(len([v for v in created[0] if ":sha-" in v]), 2)
 
     def test_new_version_is_published(self):
         calls = self.check_publish(subprocess.CompletedProcess([], 1, "", "manifest unknown"))

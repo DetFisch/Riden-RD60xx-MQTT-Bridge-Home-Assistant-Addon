@@ -17,9 +17,6 @@ import yaml
 PLATFORMS = {
     "amd64": ("linux/amd64", "ubuntu-24.04"),
     "aarch64": ("linux/arm64", "ubuntu-24.04-arm"),
-    "armv7": ("linux/arm/v7", "ubuntu-24.04"),
-    "armhf": ("linux/arm/v6", "ubuntu-24.04"),
-    "i386": ("linux/386", "ubuntu-24.04"),
 }
 
 
