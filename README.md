@@ -106,11 +106,11 @@ replayed after reconnecting; check the device's reported state before retrying.
 
 ## Container images and tests
 
-GitHub Actions tests the bridge with Python 3.12 and builds native amd64 and
-aarch64 images. Successful builds on `main` publish signed versioned images and
-`latest` to `ghcr.io/detfisch/riden_rd60xx_home_assistant_addon`.
-Home Assistant installations continue to build locally from the add-on's
-Dockerfile, including the other architectures listed in `config.yaml`.
+GitHub Actions tests the bridge with Python 3.12 and builds every architecture
+listed in the add-on configuration. Successful builds on `main` publish signed,
+versioned images and `latest` to `ghcr.io/detfisch/riden_rd60xx_home_assistant_addon`.
+Home Assistant downloads the image matching the configured add-on version instead
+of building the Dockerfile on the user's device.
 
 Run the regression tests without connecting to a PSU, MQTT broker, or Home Assistant:
 
@@ -129,3 +129,12 @@ python -B -m unittest discover -s tests -v
 - Container build workflow contributed by [Andras Elso (elbandi)](https://github.com/elbandi)
 - PSU disconnect and log-flooding report by [Dewieinns](https://github.com/Dewieinns)
 
+## Pre-built Home Assistant images
+
+Home Assistant installs and updates this add-on from the container image declared
+in its configuration. It downloads the matching version for the host architecture
+instead of building the Dockerfile locally. GitHub Actions builds on every push
+to the default branch and publishes after all declared architectures pass.
+Existing release tags are kept; increase the add-on version for a new release.
+
+See [.github/ADDON_IMAGES.md](.github/ADDON_IMAGES.md) for the build and release workflow.

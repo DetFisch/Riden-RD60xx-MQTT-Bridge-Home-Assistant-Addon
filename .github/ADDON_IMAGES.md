@@ -12,7 +12,7 @@ After all builds pass, the workflow publishes and signs the versioned images and
 `latest`. Existing version tags remain unchanged; bump `version` for each release.
 Home Assistant pulls the tag matching `version`, not `latest`.
 
-New GHCR packages start private. Keep images from private repositories private.
+Verify new GHCR package visibility. Keep images from private repositories private.
 Their users must configure a GHCR registry login in Home Assistant Supervisor;
 access to the source repository does not also authenticate container pulls.
 Public add-ons require the final image package to be public before enabling the

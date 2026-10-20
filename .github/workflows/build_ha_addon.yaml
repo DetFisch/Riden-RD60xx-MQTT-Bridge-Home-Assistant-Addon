@@ -80,7 +80,7 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           IMAGE_REF: ${{ matrix.image }}@${{ steps.image.outputs.digest }}
-        run: cosign sign --yes "$IMAGE_REF"
+        run: bash .github/scripts/sign_image.sh "$IMAGE_REF"
 
   publish:
     name: Publish immutable releases

@@ -128,7 +128,7 @@ def publish(addons):
                 digest = descriptor["digest"]
                 print(f"Published {ref}@{digest}", flush=True)
                 if sign:
-                    subprocess.run(["cosign", "sign", "--yes", f"{image}@{digest}"], check=True)
+                    subprocess.run(["bash", ".github/scripts/sign_image.sh", f"{image}@{digest}"], check=True)
 
 
 def main():
