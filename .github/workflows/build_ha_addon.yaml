@@ -1,109 +1,121 @@
-name: Build HA addon
+name: Add-on images
 
 on:
-  workflow_dispatch:
-  pull_request:
   push:
-    branches:
-      - 'main'
-      - 'codex/**'
-
-env:
-  ARCHITECTURES: '["amd64", "aarch64"]'
-  IMAGE_NAME: riden_rd60xx_home_assistant_addon
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: addon-build-${{ github.ref }}
+  group: addon-images-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  test:
-    name: Test bridge
-    runs-on: ubuntu-latest
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.addons.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
-      - run: python -m pip install -r riden_rd60xx_home_assistant_addon/requirements.txt
-      - run: python -B -m unittest discover -s tests -v
-
-  init:
-    name: Initialize build
-    needs: test
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-      version: ${{ steps.config.outputs.version }}
-      registry-prefix: ${{ steps.config.outputs.registry-prefix }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Read add-on version and registry namespace
-        id: config
-        env:
-          REPOSITORY_OWNER: ${{ github.repository_owner }}
-        run: |
-          python -m pip install PyYAML==6.0.3
-          version=$(python -c "import yaml; print(yaml.safe_load(open('riden_rd60xx_home_assistant_addon/config.yaml'))['version'])")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "registry-prefix=ghcr.io/${REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-
-      - name: Get build matrix
-        id: matrix
-        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.06.0
-        with:
-          architectures: ${{ env.ARCHITECTURES }}
-          image-name: ${{ env.IMAGE_NAME }}
-          registry-prefix: ${{ steps.config.outputs.registry-prefix }}
+          python-version: "3.12"
+      - run: python -m pip install PyYAML==6.0.3
+      - run: python .github/scripts/test_addon_images.py
+      - name: Read versions, architectures and build settings
+        id: addons
+        run: echo "matrix=$(python .github/scripts/addon_images.py matrix)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build ${{ matrix.arch }} image
-    needs: [test, init]
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.path }} (${{ matrix.arch }})
+    needs: [metadata, test]
+    runs-on: ${{ matrix.runner }}
     permissions:
-      contents: read # To check out the code
-      id-token: write # Write needed for Cosign signing (issue OIDC token for signing)
-      packages: write # To push built images to GitHub Container Registry
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.metadata.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Build image
-        uses: home-assistant/builder/actions/build-image@2026.06.0
+      - uses: docker/setup-qemu-action@v4
+        if: matrix.arch != 'amd64' && matrix.arch != 'aarch64'
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
-          context: riden_rd60xx_home_assistant_addon
-          arch: ${{ matrix.arch }}
-          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          image: ${{ matrix.image }}
-          image-tags: |
-            ${{ needs.init.outputs.version }}
-            latest
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build date
+        id: date
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Build and push commit image
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.path }}
+          platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          cosign: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          version: ${{ needs.init.outputs.version }}
+          tags: ${{ matrix.image }}:sha-${{ github.sha }}
+          build-args: |
+            ${{ matrix.build_args }}
+            BUILD_DATE=${{ steps.date.outputs.value }}
+          labels: |
+            io.hass.type=addon
+            io.hass.arch=${{ matrix.arch }}
+            io.hass.version=${{ matrix.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ matrix.version }}
+          cache-from: type=gha,scope=${{ matrix.scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.scope }}
+      - uses: sigstore/cosign-installer@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - name: Sign commit image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_REF: ${{ matrix.image }}@${{ steps.image.outputs.digest }}
+        run: cosign sign --yes "$IMAGE_REF"
 
-  manifest:
-    name: Publish multi-arch manifest
-    needs: [init, build]
+  publish:
+    name: Publish immutable releases
+    needs: [metadata, build]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
-      id-token: write # Write needed for Cosign signing (issue OIDC token for signing)
-      packages: write # To push the manifest to GitHub Container Registry
+      contents: read
+      packages: write
+      id-token: write
     steps:
-      - name: Publish multi-arch manifest
-        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.06.0
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          architectures: ${{ env.ARCHITECTURES }}
-          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          image-name: ${{ env.IMAGE_NAME }}
-          registry-prefix: ${{ needs.init.outputs.registry-prefix }}
-          image-tags: |
-            ${{ needs.init.outputs.version }}
-            latest
+          python-version: "3.12"
+      - run: python -m pip install PyYAML==6.0.3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v4
+      - name: Publish version and latest after all architectures pass
+        env:
+          SIGN_IMAGES: "true"
+        run: python .github/scripts/addon_images.py publish
+
+  test:
+    name: Test bridge
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - run: python -m pip install -r riden_rd60xx_home_assistant_addon/requirements.txt
+    - run: python -B -m unittest discover -s tests -v

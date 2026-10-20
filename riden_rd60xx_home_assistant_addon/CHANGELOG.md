@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5 - 2026-10-20
+
+- Build and publish versioned container images in GitHub Actions for faster Home Assistant installations and updates.
+- Preserve release tags and build every architecture declared by the add-on.
+
 ## 1.0.4
 
 - Stop polling dead PSU connections and publish disconnected status, including

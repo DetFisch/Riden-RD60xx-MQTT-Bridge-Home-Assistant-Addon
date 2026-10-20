@@ -1,5 +1,5 @@
 name: "Riden RD60xx MQTT Bridge HA Add-on"
-version: "1.0.4"
+version: "1.0.5"
 slug: "riden_rd60xx_ha_addon"
 description: "Accepts Riden W0x TCP (8080) connections and publishes controls/status to MQTT"
 url: "https://github.com/DetFisch/Riden-RD60xx-MQTT-Bridge-Home-Assistant-Addon"
