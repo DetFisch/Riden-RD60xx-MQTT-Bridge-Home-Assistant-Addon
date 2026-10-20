@@ -33,12 +33,10 @@ class ReleaseImagesTests(unittest.TestCase):
         self.assertEqual(entries[1]["runner"], "ubuntu-24.04-arm")
         self.assertEqual(entries[1]["platform"], "linux/arm64")
 
-    def test_build_from_is_selected_per_architecture(self):
-        (self.root / "build.json").write_text(json.dumps(
-            {"build_from": {"aarch64": "ghcr.io/home-assistant/aarch64-base:latest"}}))
-        entries = images.matrix(images.load_addons(self.root))["include"]
-        self.assertIn("BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest", entries[1]["build_args"])
-        self.assertNotIn("BUILD_FROM=", entries[0]["build_args"])
+    def test_deprecated_build_file_is_rejected(self):
+        (self.root / "build.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "Deprecated"):
+            images.load_addons(self.root)
 
     def test_config_image_must_match_published_image(self):
         self.config["image"] = "ghcr.io/detfisch/wrong"

@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.addons.outputs.matrix }}
+      paths: ${{ steps.addons.outputs.paths }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -25,13 +26,16 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install PyYAML==6.0.3
       - run: python .github/scripts/test_addon_images.py
+      - run: python .github/scripts/test_check_image.py
       - name: Read versions, architectures and build settings
         id: addons
-        run: echo "matrix=$(python .github/scripts/addon_images.py matrix)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "matrix=$(python .github/scripts/addon_images.py matrix)" >> "$GITHUB_OUTPUT"
+          echo "paths=$(python .github/scripts/addon_images.py paths)" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.path }} (${{ matrix.arch }})
-    needs: [metadata, test]
+    needs: [metadata, conformity, test]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -52,19 +56,19 @@ jobs:
       - name: Build date
         id: date
         run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - name: Build and push commit image
+      - name: Build commit image for inspection
         id: image
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.path }}
           platforms: ${{ matrix.platform }}
-          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+          load: true
           tags: ${{ matrix.image }}:sha-${{ github.sha }}
           build-args: |
             ${{ matrix.build_args }}
             BUILD_DATE=${{ steps.date.outputs.value }}
           labels: |
-            io.hass.type=addon
+            io.hass.type=app
             io.hass.arch=${{ matrix.arch }}
             io.hass.version=${{ matrix.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -72,12 +76,33 @@ jobs:
             org.opencontainers.image.version=${{ matrix.version }}
           cache-from: type=gha,scope=${{ matrix.scope }}
           cache-to: type=gha,mode=max,scope=${{ matrix.scope }}
+      - name: Check built image labels and platform
+        env:
+          IMAGE_REF: ${{ matrix.image }}:sha-${{ github.sha }}
+          HA_ARCH: ${{ matrix.arch }}
+          HA_VERSION: ${{ matrix.version }}
+        run: python3 .github/scripts/check_image.py "$IMAGE_REF" "$HA_ARCH" "$HA_VERSION"
+      - name: Check runtime dependencies without external access
+        env:
+          IMAGE_REF: ${{ matrix.image }}:sha-${{ github.sha }}
+          APP_PATH: ${{ matrix.path }}
+          HA_ARCH: ${{ matrix.arch }}
+        run: python3 .github/scripts/smoke_image.py "$IMAGE_REF" "$APP_PATH" "$HA_ARCH"
+      - name: Push checked commit image
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        id: pushed
+        env:
+          IMAGE_REF: ${{ matrix.image }}:sha-${{ github.sha }}
+        run: |
+          docker push "$IMAGE_REF"
+          digest=$(docker buildx imagetools inspect "$IMAGE_REF" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: sigstore/cosign-installer@v4.1.2
         if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       - name: Sign commit image
         if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
         env:
-          IMAGE_REF: ${{ matrix.image }}@${{ steps.image.outputs.digest }}
+          IMAGE_REF: ${{ matrix.image }}@${{ steps.pushed.outputs.digest }}
         run: bash .github/scripts/sign_image.sh "$IMAGE_REF"
 
   publish:
@@ -117,3 +142,25 @@ jobs:
         python-version: '3.12'
     - run: python -m pip install -r riden_rd60xx_home_assistant_addon/requirements.txt
     - run: python -B -m unittest discover -s tests -v
+
+  conformity:
+    name: Validate Home Assistant app
+    needs: [metadata]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.metadata.outputs.paths) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: frenck/action-addon-linter@v2.21
+        with:
+          path: ${{ matrix.path }}
+          community: false
+      - name: Validate with Supervisor 2026.10.3 (isolated, no services)
+        env:
+          APP_PATH: ${{ matrix.path }}
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            --mount "type=bind,src=$PWD,dst=/repo,readonly" \
+            --entrypoint python ghcr.io/home-assistant/amd64-hassio-supervisor@sha256:720a3980ff8e01b932d4b1e5f500e5a61a8983dc8ac915136e42ae0696d562cc \
+            /repo/.github/scripts/validate_app.py "/repo/$APP_PATH"

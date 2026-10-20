@@ -48,12 +48,9 @@ def load_addons(root=Path(".")):
         arches = config["arch"]
         if not arches or len(arches) != len(set(arches)) or set(arches) - PLATFORMS.keys():
             raise ValueError(f"Unsupported or duplicate architectures: {arches}")
-        build = {}
-        for name in ("build.yaml", "build.yml", "build.json"):
-            if (folder / name).is_file():
-                build = yaml.safe_load((folder / name).read_text(encoding="utf-8"))
-                break
-        addons.append(dict(entry, version=version, arch=arches, build=build,
+        if any((folder / name).exists() for name in ("build.yaml", "build.yml", "build.json")):
+            raise ValueError("Deprecated build file: move settings into Dockerfile")
+        addons.append(dict(entry, version=version, arch=arches,
                            name=config["name"], description=config["description"]))
     if not addons or len({a["image"] for a in addons}) != len(addons):
         raise ValueError("Expected at least one add-on and unique image names")
@@ -78,9 +75,6 @@ def matrix(addons):
                 "BUILD_REPOSITORY": os.environ.get("GITHUB_REPOSITORY", ""),
                 "BUILD_REF": os.environ.get("GITHUB_SHA", ""),
             }
-            build_from = addon["build"].get("build_from", {}).get(arch)
-            if build_from:
-                args["BUILD_FROM"] = build_from
             result.append(dict(path=addon["path"], arch=arch, platform=platform,
                                runner=runner, image=arch_image(addon["image"], arch),
                                version=addon["version"],
@@ -132,11 +126,13 @@ def publish(addons):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("matrix", "publish"))
+    parser.add_argument("command", choices=("matrix", "paths", "publish"))
     args = parser.parse_args()
     addons = load_addons()
     if args.command == "matrix":
         print(json.dumps(matrix(addons), separators=(",", ":")))
+    elif args.command == "paths":
+        print(json.dumps({"include": [{"path": a["path"]} for a in addons]}))
     else:
         publish(addons)
 

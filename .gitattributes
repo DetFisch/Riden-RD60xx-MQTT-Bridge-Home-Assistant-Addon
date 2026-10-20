@@ -1,0 +1,4 @@
+* text=auto
+
+# Container entrypoints must also work from Windows checkouts.
+*.sh text eol=lf

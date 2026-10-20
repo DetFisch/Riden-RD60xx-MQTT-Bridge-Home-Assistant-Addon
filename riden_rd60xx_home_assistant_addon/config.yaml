@@ -1,5 +1,5 @@
 name: "Riden RD60xx MQTT Bridge HA Add-on"
-version: "1.0.6"
+version: "1.0.7"
 image: "ghcr.io/detfisch/riden_rd60xx_home_assistant_addon"
 slug: "riden_rd60xx_ha_addon"
 description: "Accepts Riden W0x TCP (8080) connections and publishes controls/status to MQTT"
@@ -8,7 +8,6 @@ arch:
   - amd64
   - aarch64
 startup: services
-boot: auto
 init: false
 services:
   - mqtt:need

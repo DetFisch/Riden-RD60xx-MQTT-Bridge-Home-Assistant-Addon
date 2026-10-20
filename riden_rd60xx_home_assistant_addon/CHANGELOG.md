@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.7 - 2026-10-20
+
+- Align image metadata and configuration with current Home Assistant app requirements.
+- Validate the Supervisor schema, default options and built image labels before publication.
+- Keep versioned pre-built amd64/aarch64 images and immutable release tags.
+
+
 ## 1.0.6 - 2026-10-20
 
 - Publish only supported 64-bit Home Assistant images (amd64 and aarch64).
