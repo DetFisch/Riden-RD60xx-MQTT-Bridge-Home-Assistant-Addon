@@ -82,6 +82,17 @@ class ReleaseImagesTests(unittest.TestCase):
         self.assertTrue(any("ghcr.io/detfisch/example:1.2.3" in c.args
                             for c in calls if c.args[0] == "create"))
 
+    def test_same_digest_is_signed_once_for_both_release_tags(self):
+        def run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 1 if args[0] == "docker" else 0,
+                                               "", "manifest unknown")
+        with patch.dict(os.environ, {"GITHUB_SHA": "a" * 40, "SIGN_IMAGES": "true"}), \
+             patch.object(images, "docker", return_value=json.dumps({"digest": "sha256:123"})), \
+             patch.object(subprocess, "run", side_effect=run) as commands:
+            images.publish(images.load_addons(self.root))
+        signatures = [call for call in commands.call_args_list if call.args[0][0] == "bash"]
+        self.assertEqual(len(signatures), 1)
+
     def test_registry_permission_error_does_not_overwrite_a_release(self):
         with self.assertRaisesRegex(RuntimeError, "unauthorized"):
             self.check_publish(subprocess.CompletedProcess([], 1, "", "unauthorized"))

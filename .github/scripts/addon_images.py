@@ -102,6 +102,7 @@ def publish(addons):
     if not re.fullmatch(r"[a-f0-9]{40}", sha):
         raise ValueError("Expected a full commit SHA")
     sign = os.environ.get("SIGN_IMAGES") == "true"
+    signed = set()
     for addon in addons:
         sources = [f"{arch_image(addon['image'], arch)}:sha-{sha}" for arch in addon["arch"]]
         targets = ([arch_image(addon["image"], arch) for arch in addon["arch"]]
@@ -127,8 +128,9 @@ def publish(addons):
                 descriptor = json.loads(docker("inspect", ref, "--format", "{{json .Manifest}}"))
                 digest = descriptor["digest"]
                 print(f"Published {ref}@{digest}", flush=True)
-                if sign:
+                if sign and (image, digest) not in signed:
                     subprocess.run(["bash", ".github/scripts/sign_image.sh", f"{image}@{digest}"], check=True)
+                    signed.add((image, digest))
 
 
 def main():
