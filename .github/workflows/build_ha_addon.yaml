@@ -74,7 +74,7 @@ jobs:
             org.opencontainers.image.version=${{ matrix.version }}
           cache-from: type=gha,scope=${{ matrix.scope }}
           cache-to: type=gha,mode=max,scope=${{ matrix.scope }}
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
       - name: Sign commit image
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -103,7 +103,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
       - name: Publish version and latest after all architectures pass
         env:
           SIGN_IMAGES: "true"
