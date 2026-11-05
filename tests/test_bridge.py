@@ -151,12 +151,6 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
 class ReverseConnectionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.service = RD60xxToMQTT("unused", 1883, default_update_period=0, set_clock_on_connection=False)
-        if sys.platform == "win32":
-            # Windows asyncio wraps sockets without ioctl. These loopback tests
-            # exercise lifecycle handling; Linux CI also exercises socket tuning.
-            keepalive = patch("async_modbus_reverse_tcp_client.platform.system", return_value="Test")
-            keepalive.start()
-            self.addCleanup(keepalive.stop)
         self.service._mqtt_client = Mock(publish=AsyncMock())
         self.clients = []
         self.writers = []

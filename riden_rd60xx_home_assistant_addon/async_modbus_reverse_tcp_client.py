@@ -1,10 +1,12 @@
 from collections.abc import Callable
 import asyncio
+import logging
 import platform
 import socket
 
 from pymodbus.client.base import ModbusBaseClient
 from pymodbus.framer.base import FramerType
+from pymodbus.framer.rtu import FramerRTU
 from pymodbus.pdu import ModbusPDU
 from pymodbus.transport import CommParams, CommType
 
@@ -57,6 +59,11 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
     Please refer to :ref:`Pymodbus internals` for advanced usage.
     """
 
+    # RTU allows at most 256 bytes per ADU. Allow a few duplicate/late replies,
+    # but never keep parsing an unbounded stream for a single request.
+    MAX_RTU_FRAME = 256
+    MAX_RTU_RECEIVE = 4 * MAX_RTU_FRAME
+
     def __init__(
         self,
         client_connected_cb,
@@ -73,6 +80,12 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
         self._client_connected_cb = client_connected_cb
         self._client_disconnected_cb = client_disconnected_cb
         self._disconnect_notified = False
+        self._logger = logging.getLogger("AsyncModbusReverseTcpClient")
+        self._rtu = framer == FramerType.RTU
+        self._rtu_buffer = bytearray()
+        self._rtu_received = 0
+        self._rtu_request = None
+        self._user_trace_pdu = trace_pdu
 
         # Force comms type and clear reset delay, preventing "client" from attempting to reconnect on connection loss
         comm_params = CommParams(
@@ -89,7 +102,7 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
             retries=retries,
             comm_params=comm_params,
             trace_packet=trace_packet,
-            trace_pdu=trace_pdu,
+            trace_pdu=self._trace_pdu if self._rtu else trace_pdu,
             trace_connect=None
         )
 
@@ -126,7 +139,10 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
             sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, 5)
 
         elif platform.system() == "Windows":
-            sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 5 * 1000, 2 * 1000)) # enable, ms idle time before starting probes, ms between probes
+            # asyncio's TransportSocket has setsockopt, but no ioctl method.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)
 
         # Pass to transaction manager
         self.ctx.callback_connected()
@@ -135,10 +151,91 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
         self._client_connected_cb(self, transport)
 
     def data_received(self, data):
-        """Handle received data"""
+        """Assemble bounded RTU replies before invoking pymodbus's decoder.
 
-        # Pass to transaction manager
-        self.ctx.callback_data(data=data)
+        The upstream RTU garbage-recovery scan can do cubic work on arbitrary
+        TCP input. Only pass complete, CRC-checked frames to it, so that it
+        always succeeds at the first candidate. Bad streams are disconnected.
+        """
+
+        if not self.connected:
+            return
+        if not self._rtu:
+            self.ctx.data_received(data)
+            return
+        if self._rtu_received + len(data) > self.MAX_RTU_RECEIVE:
+            self._invalid_rtu("receive limit exceeded")
+            return
+        self._rtu_received += len(data)
+        self._rtu_buffer.extend(data)
+
+        while len(self._rtu_buffer) >= 2:
+            function = self._rtu_buffer[1]
+            if function in (3, 6, 16):
+                if function == 3:
+                    if len(self._rtu_buffer) < 3:
+                        return
+                    byte_count = self._rtu_buffer[2]
+                    if not byte_count or byte_count % 2 or byte_count > 250:
+                        self._invalid_rtu("invalid register byte count")
+                        return
+                    size = byte_count + 5
+                else:
+                    size = 8
+            elif function in (0x83, 0x86, 0x90):
+                size = 5
+            else:
+                self._invalid_rtu("unsupported response function")
+                return
+            if len(self._rtu_buffer) < size:
+                return
+            frame = bytes(self._rtu_buffer[:size])
+            del self._rtu_buffer[:size]
+            if not FramerRTU.check_CRC(frame[:-2], int.from_bytes(frame[-2:], "big")):
+                self._invalid_rtu("CRC mismatch")
+                return
+
+            # Ignore bounded duplicate/late replies rather than allowing them to
+            # satisfy another operation (pymodbus checks device ID, but not the
+            # function, register count, or write acknowledgement).
+            if self._matches_rtu_request(frame):
+                self.ctx.callback_data(data=frame)
+
+    def _trace_pdu(self, sending, pdu):
+        """Track requests inside the transaction lock, including each retry."""
+
+        if self._user_trace_pdu is not None:
+            pdu = self._user_trace_pdu(sending, pdu)
+        if sending:
+            self._rtu_buffer.clear()
+            self._rtu_received = 0
+            self._rtu_request = (pdu.dev_id, pdu.function_code, pdu.address,
+                                 pdu.count, tuple(pdu.registers))
+        return pdu
+
+    def _matches_rtu_request(self, frame):
+        if self._rtu_request is None or self.ctx.response_future.done():
+            return False
+        device, function, address, count, registers = self._rtu_request
+        if frame[0] != device:
+            return False
+        if frame[1] == (function | 0x80):
+            return True
+        if frame[1] != function:
+            return False
+        if function == 3:
+            return frame[2] == count * 2
+        if int.from_bytes(frame[2:4], "big") != address:
+            return False
+        value = int.from_bytes(frame[4:6], "big")
+        return value == (registers[0] if function == 6 else count)
+
+    def _invalid_rtu(self, reason):
+        # close() is idempotent, and later transport callbacks are ignored. Log
+        # one short message, without dumping untrusted input or flooding logs.
+        self._logger.warning("Closing invalid RTU connection %s: %s",
+                             self.comm_params.comm_name, reason)
+        self.close()
 
     def connection_lost(self, exc):
         """Handle closed connection"""
@@ -162,4 +259,8 @@ class AsyncModbusReverseTcpClient(ModbusBaseClient, asyncio.Protocol):
 
         if not self._disconnect_notified:
             self._disconnect_notified = True
+            self._rtu_buffer.clear()
+            # Wake an in-flight probe immediately. Otherwise the onboarding
+            # queue waits through all retries of an already closed socket.
+            self.ctx.response_future.cancel()
             self._client_disconnected_cb(self)

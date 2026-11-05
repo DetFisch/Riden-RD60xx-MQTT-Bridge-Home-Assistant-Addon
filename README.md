@@ -104,6 +104,13 @@ become unavailable until the PSU reconnects. Temporary Modbus errors on a live
 connection are retried after at least five seconds. Commands that fail are not
 replayed after reconnecting; check the device's reported state before retrying.
 
+Port 8080 expects Modbus RTU replies from the Riden WiFi module, rather than HTTP
+or Modbus TCP. Malformed replies and excessive incoming data cause that client
+to be disconnected. Valid replies split across TCP packets are reassembled;
+duplicate replies and replies that do not match the current request are ignored
+within a bounded receive allowance. Reconnecting PSUs keep their detected Modbus
+address, including addresses other than 1.
+
 ## Container images and tests
 
 GitHub Actions tests the bridge with Python 3.12 and builds every architecture
@@ -118,6 +125,11 @@ Run the regression tests without connecting to a PSU, MQTT broker, or Home Assis
 python -m pip install -r riden_rd60xx_home_assistant_addon/requirements.txt
 python -B -m unittest discover -s tests -v
 ```
+
+The tests include a PSU simulator using real loopback TCP connections for device
+identification, status, control, clock setting and reconnects. A separate process
+with a hard timeout checks hostile payloads up to 1 MiB and randomized fragments,
+so a blocking parser regression cannot hang the test runner.
 
 ---
 

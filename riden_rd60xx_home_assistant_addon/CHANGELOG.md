@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.8 - 2026-11-05
+
+- Bound RTU receive work and memory before invoking pymodbus, preventing CPU
+  spikes from malformed clients on port 8080. Close invalid streams with one
+  short warning per connection.
+- Assemble fragmented TCP replies, handle coalesced duplicates, and validate
+  responses against the pending request, including write acknowledgements.
+- Wake pending requests on disconnect, skip disconnected queued clients, and
+  avoid stale bridges after a disconnect during discovery.
+- Preserve the detected Modbus address across cached reconnects.
+- Fix Windows asyncio socket keepalive setup.
+- Round voltage, current, OVP and OCP to register precision instead of truncating
+  floating-point artifacts (for example, 4.10 V becoming 4.09 V).
+- Test real RTU/TCP traffic with a simulated PSU, malformed streams and a
+  separate-process CPU regression check.
+
 ## 1.0.7 - 2026-10-20
 
 - Align image metadata and configuration with current Home Assistant app requirements.

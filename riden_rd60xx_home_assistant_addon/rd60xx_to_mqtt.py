@@ -374,17 +374,19 @@ class RD60xxToMQTT:
         # Entry
         self._logger.info("PSU task running")
 
-        # Map of IP -> PSU identity, model, serial number and connection time
-        identity_cache:Dict[str, Tuple[str, int, int, float]] = {}
+        # Map of IP -> identity, model, serial number, connection time and address
+        identity_cache:Dict[str, Tuple[str, int, int, float, int]] = {}
 
         try:
             # Retrieve PSUs from queue
             while True:
                 # Fetch newly connected PSU
                 psu, host, port = await self._new_psu_queue.get()
+                if not psu.connected:
+                    continue
 
                 # Lookup identity from IP
-                identity, model, serial_no, last_connection = identity_cache.get(host, (None, None, None, None))
+                identity, model, serial_no, last_connection, address = identity_cache.get(host, (None, None, None, None, None))
 
                 # Retrieve time
                 time_now = time.monotonic()
@@ -399,6 +401,8 @@ class RD60xxToMQTT:
                         # PSU has been offline for longer than cache limit, force re-query
                         identity = None
                         last_connection = None
+                    else:
+                        psu.PSU_ADDR = address
 
                 if identity is None:
                     # Try each configured PSU address to find which one responds
@@ -450,7 +454,7 @@ class RD60xxToMQTT:
                 last_connection = time_now
 
                 # Update identity map
-                identity_cache[host] = (identity, model, serial_no, last_connection)
+                identity_cache[host] = (identity, model, serial_no, last_connection, psu.PSU_ADDR)
 
                 # Log identity
                 self._logger.info("PSU %s:%d's identity is %s, it's name is '%s'", host, port, identity, name)
@@ -461,6 +465,10 @@ class RD60xxToMQTT:
                 # Set default update period if not already configured
                 if state.update_period is None:
                     state.update_period = self._default_update_period
+
+                # Discovery publication can yield while the socket disconnects.
+                if not psu.connected:
+                    continue
 
                 # Retire the previous socket/worker before replacing this identity.
                 previous_bridge = self._psus.get(identity)
