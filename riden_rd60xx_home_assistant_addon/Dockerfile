@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ARG BUILD_ARCH
 ARG BUILD_VERSION=1.0.8
+LABEL org.opencontainers.image.version="${BUILD_VERSION}"
 LABEL io.hass.type="app" \
       io.hass.version="${BUILD_VERSION}" \
       io.hass.arch="${BUILD_ARCH}"
