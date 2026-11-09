@@ -1,0 +1,17 @@
+services:
+  riden:
+    build:
+      context: ./riden_rd60xx_home_assistant_addon
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${RIDEN_BIND_ADDRESS:-0.0.0.0}:${RIDEN_PORT:-8080}:8080/tcp"
+    environment:
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - type: bind
+        source: ./options.json
+        target: /data/options.json
+        read_only: true
+        bind:
+          create_host_path: false

@@ -1,152 +1,74 @@
-# Riden RD60xx MQTT Bridge Home Assistant Add-on
+# Riden RD60xx MQTT Bridge in Docker
 
-Bridge for Riden RD60xx power supplies that exposes status and controls over MQTT.
-It works with the **standard Riden WiFi module** out of the box. **No flashing, no hardware mods, no firmware changes required**.
+Run the bridge as a standalone Compose service alongside Home Assistant Container. The bridge accepts connections from the standard Riden WiFi module and exposes PSU status and controls through MQTT Discovery.
 
----
+For the Supervisor-managed Home Assistant App, see the [`main` branch](https://github.com/DetFisch/Riden-RD60xx-MQTT-Bridge-Home-Assistant-Addon/tree/main).
 
-## What it does
+## Install
 
-- Accepts TCP connections from the Riden PSU (default port 8080)
-- Publishes status to MQTT
-- Provides control via MQTT (output, voltage, current, OVP/OCP, etc.)
-- Automatically adds Home Assistant MQTT Discovery entities
+You need Docker with the Compose plugin, an MQTT broker reachable from the Docker host and its containers, and Home Assistant connected to that broker via the MQTT integration. A broker on another Docker network needs a reachable published address. If the broker shares a Docker network with this service, use its service name there.
 
----
-
-## Prerequisites
-
-- Home Assistant with the **MQTT integration** enabled
-- **Mosquitto broker add-on** installed and running
-
----
-
-## Installation
-
-### 1) Add this repository to Home Assistant
-
-[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FDetFisch%2FRiden-RD60xx-MQTT-Bridge-Home-Assistant-Addon)
-
-### 2) Install the add-on
-
-- Find **Riden RD60xx MQTT Bridge Home Assistant Add-on** in the add-on store
-- Install
-
-### 3) Configure and start
-
-- Open the add-on settings
-- Configure MQTT (defaults work with Mosquitto)
-- **Start the add-on**
-
-If MQTT Discovery is enabled, entities will appear automatically in Home Assistant.
-
----
-
-## Configuration (optional)
-
-Minimal (Mosquitto defaults):
-
-```yaml
-mqtt_host: core-mosquitto
-mqtt_port: 1883
-mqtt_username: ""
-mqtt_password: ""
-mqtt_prefix: riden
-mqtt_discovery_enabled: true
+```sh
+git clone --branch codex/docker https://github.com/DetFisch/Riden-RD60xx-MQTT-Bridge-Home-Assistant-Addon.git riden-docker
+cd riden-docker
+cp .env.example .env
+cp options.example.json options.json
+chmod 600 options.json
 ```
 
----
+Set `mqtt_host` in `options.json` to your broker's reachable DNS name or IP. Supply its credentials if required. `localhost` resolves inside the Riden container, and `core-mosquitto` is normally specific to Supervisor installations. Use the address of the Docker host or broker that the container can actually reach.
 
-## WiFi Provisioning Tool (optional)
+In `.env`, you can set `RIDEN_BIND_ADDRESS` to the host's LAN IP, `RIDEN_PORT` to its published TCP port, and `TZ` to the time zone used when setting the PSU clock. Keep TCP 8080 reachable from the PSU on your LAN. The stock WiFi provisioning tool uses port 8080. Limit access to your trusted LAN, as the PSU TCP endpoint has no authentication.
 
-If your PSU WiFi module is not yet configured to connect to your Home Asisstant IP, use the provisioning tool:
-
-### Tool location
-
-```text
-riden_wifi_provision.py
+```sh
+docker compose config --quiet
+docker compose up -d --build
+docker compose logs -f riden
 ```
 
-### Requirements
+The Dockerfile builds the bridge from this checkout. Local settings and credentials stay in the two ignored files. The bridge keeps its connection state in memory, while the MQTT broker stores retained discovery data according to its configuration.
 
-- Python 3 on **Windows / Linux / macOS**
-- The machine running the tool must be connected to the **same 2.4 GHz WiFi** you want the PSU to join
+## Home Assistant and the PSU
 
-### Usage
+Add the **MQTT** integration in Home Assistant and connect it to the same broker. With MQTT Discovery enabled, the PSU's device and entities appear after it connects. The bridge listens on TCP, so there is no web UI to add to the sidebar. You can use its entities on any Home Assistant dashboard.
 
-```bash
-python riden_wifi_provision.py
+If the WiFi module is not yet configured, run `python riden_wifi_provision.py` on a computer connected to the target 2.4 GHz WiFi network. Follow the prompts and enter the **Docker host's LAN IP** as the server. The PSU connects to that address on TCP 8080. With an already provisioned PSU, keep its existing host address and port or provision it again for the new host.
+
+When moving from the App, stop the old instance before starting this service. Keep the same broker, `mqtt_prefix` and `mqtt_discovery_prefix` to preserve the topic layout. Copy only the needed options into `options.json` and replace the Supervisor MQTT address with one reachable by this container.
+
+## Change settings
+
+Edit `options.json`, then run `docker compose up -d --force-recreate riden` to reload the settings and refresh the file mount. The same command also applies edits to `.env`.
+
+| Setting in `options.json` | Purpose |
+| --- | --- |
+| `mqtt_host`, `mqtt_port` | Broker address and port. Use the standard non-TLS MQTT listener on a trusted network. |
+| `mqtt_username`, `mqtt_password`, `mqtt_client_id` | Broker credentials and optional explicit client ID. Use a different client ID for each instance. |
+| `mqtt_prefix` | MQTT topic prefix for PSU status and controls. |
+| `mqtt_discovery_enabled`, `mqtt_discovery_prefix` | Enable HA discovery and set its prefix. The default HA prefix is `homeassistant`. |
+| `default_update_period` | Polling interval in seconds. |
+| `psu_addresses` | Comma-separated Modbus addresses to try, for example `"1,2"`. |
+| `set_clock_on_connection` | Set the PSU clock when the bridge connects. |
+| `ip_to_identity_cache_timeout_secs`, `mqtt_reconnect_delay_secs` | Optional connection cache lifetime and reconnect delay. |
+| `log_level` | Python logging level. |
+
+Use JSON booleans (`true` and `false`) and numbers where shown in the example.
+
+## Update or stop
+
+```sh
+git pull --ff-only
+docker compose up -d --build
+docker compose logs --tail=100 riden
 ```
 
-You will be asked for:
+To stop the service, run `docker compose down`. Back up `options.json` and `.env` if you want to reinstall without re-entering settings.
 
-- **Server IP**: The IP the PSU should connect to after setup (use your Home Assistant IP)
-- **SSID** and **Password** of your 2.4 GHz WiFi
-- Optional **BSSID** (AP MAC address)
-
-After provisioning, the PSU connects to your WiFi Router and then to the **server IP** you entered (Home Assistant).
-
-### Example with CLI commands (alternative)
-
-```bash
-python riden_wifi_provision.py --server-ip 192.168.1.50 --ssid "MyWiFi" --password "secret" --bssid "b8:c1:ac:a6:35:93"
-```
-
----
-
-## Troubleshooting
-
-- Make sure MQTT is reachable and credentials are correct
-- Ensure the PSU WiFi module is in the correct setup mode before provisioning
-
-If the PSU connection is lost, its Connected sensor turns off and its controls
-become unavailable until the PSU reconnects. Temporary Modbus errors on a live
-connection are retried after at least five seconds. Commands that fail are not
-replayed after reconnecting; check the device's reported state before retrying.
-
-Port 8080 expects Modbus RTU replies from the Riden WiFi module, rather than HTTP
-or Modbus TCP. Malformed replies and excessive incoming data cause that client
-to be disconnected. Valid replies split across TCP packets are reassembled;
-duplicate replies and replies that do not match the current request are ignored
-within a bounded receive allowance. Reconnecting PSUs keep their detected Modbus
-address, including addresses other than 1.
-
-## Container images and tests
-
-GitHub Actions tests the bridge with Python 3.12 and builds every architecture
-listed in the add-on configuration. Successful builds on `main` publish signed,
-versioned images and `latest` to `ghcr.io/detfisch/riden_rd60xx_home_assistant_addon`.
-Home Assistant downloads the image matching the configured add-on version instead
-of building the Dockerfile on the user's device.
-
-Run the regression tests without connecting to a PSU, MQTT broker, or Home Assistant:
-
-```bash
-python -m pip install -r riden_rd60xx_home_assistant_addon/requirements.txt
-python -B -m unittest discover -s tests -v
-```
-
-The tests include a PSU simulator using real loopback TCP connections for device
-identification, status, control, clock setting and reconnects. A separate process
-with a hard timeout checks hostile payloads up to 1 MiB and randomized fragments,
-so a blocking parser regression cannot hang the test runner.
-
----
+If the PSU does not appear, check the broker address and credentials, MQTT Discovery in Home Assistant, and the published TCP 8080 connection from the PSU to this host. Port 8080 expects Modbus RTU traffic from the WiFi module.
 
 ## Credits
 
-- Based on the open-source Riden RD60xx MQTT bridge by pgreenland: https://github.com/pgreenland/RidenRD60xxMQTT
-- ESPTouch / SmartConfig provisioning inspired by the ESPTouch Android reference implementation
-- MQTT Discovery entities included for Home Assistant
-- Container build workflow contributed by [Andras Elso (elbandi)](https://github.com/elbandi)
-- PSU disconnect and log-flooding report by [Dewieinns](https://github.com/Dewieinns)
-
-## Pre-built Home Assistant images
-
-Home Assistant installs and updates this add-on from the container image declared
-in its configuration. It downloads the matching version for the host architecture
-instead of building the Dockerfile locally. GitHub Actions builds on every push
-to the default branch and publishes after all declared architectures pass.
-Existing release tags are kept; increase the add-on version for a new release.
-
-See [.github/ADDON_IMAGES.md](.github/ADDON_IMAGES.md) for the build and release workflow.
+- Based on the [Riden RD60xx MQTT bridge by pgreenland](https://github.com/pgreenland/RidenRD60xxMQTT).
+- ESPTouch / SmartConfig provisioning inspired by the ESPTouch Android reference implementation.
+- Home Assistant App build workflow contributed by [Andras Elso (elbandi)](https://github.com/elbandi).
+- PSU disconnect and log-flooding report by [Dewieinns](https://github.com/Dewieinns).
