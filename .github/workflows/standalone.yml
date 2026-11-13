@@ -1,0 +1,59 @@
+name: Standalone Riden image
+
+on:
+  push:
+    branches: [codex/docker]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: riden-standalone-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      IMAGE: ghcr.io/detfisch/riden-standalone
+      CONTEXT: riden_rd60xx_home_assistant_addon
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and test AMD64 image
+        id: build
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^ARG BUILD_VERSION=//p' "$CONTEXT/Dockerfile")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          grep -Fx "version: \"$version\"" "$CONTEXT/config.yaml"
+          docker build --platform linux/amd64 --build-arg BUILD_ARCH=amd64 \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$IMAGE:sha-$GITHUB_SHA" "$CONTEXT"
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/app \
+            -v "$PWD/tests:/tests:ro" "$IMAGE:sha-$GITHUB_SHA" \
+            python -m unittest discover -s /tests
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable version
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          ref="$IMAGE:$VERSION"
+          if docker buildx imagetools inspect "$ref" >/tmp/riden-registry 2>&1; then
+            cat /tmp/riden-registry
+            exit 0
+          fi
+          grep -Ei 'not found|manifest unknown|name unknown' /tmp/riden-registry
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+          docker buildx imagetools create --tag "$ref" "$IMAGE:sha-$GITHUB_SHA"
+          docker buildx imagetools inspect "$ref"
